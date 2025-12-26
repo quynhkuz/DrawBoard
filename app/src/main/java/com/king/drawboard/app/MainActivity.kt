@@ -3,7 +3,11 @@ package com.king.drawboard.app
 import android.content.ContentValues
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -102,12 +106,41 @@ class MainActivity : AppCompatActivity() {
     /**
      * 保存图片
      */
-    private fun saveBitmap() {
+//    private fun saveBitmap() {
+//        lifecycleScope.launch {
+//            withContext(Dispatchers.IO) {
+//                val contentValues = ContentValues().apply {
+//                    put(MediaStore.Images.Media.DISPLAY_NAME, "draw_${System.currentTimeMillis()}")
+//                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+//                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+//                        put(
+//                            MediaStore.Images.Media.RELATIVE_PATH,
+//                            "${Environment.DIRECTORY_PICTURES}/drawboard"
+//                        )
+//                    }
+//                }
+//                val uri = contentResolver.insert(
+//                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+//                    contentValues
+//                )
+//
+//                contentResolver.openOutputStream(uri!!)?.use {
+//                    binding.drawBoardView.resultBitmap.compress(Bitmap.CompressFormat.JPEG, 100, it)
+//                }
+//            }
+//            Toast.makeText(this@MainActivity, "保存成功", Toast.LENGTH_SHORT).show()
+//        }
+//    }
+
+
+    private fun saveMask() {
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
+                val maskBitmap = binding.drawBoardView.maskBitmap  // gọi getMaskBitmap()
+
                 val contentValues = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, "draw_${System.currentTimeMillis()}")
-                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.DISPLAY_NAME, "mask_${System.currentTimeMillis()}.png")
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         put(
                             MediaStore.Images.Media.RELATIVE_PATH,
@@ -115,18 +148,23 @@ class MainActivity : AppCompatActivity() {
                         )
                     }
                 }
+
                 val uri = contentResolver.insert(
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                     contentValues
                 )
 
-                contentResolver.openOutputStream(uri!!)?.use {
-                    binding.drawBoardView.resultBitmap.compress(Bitmap.CompressFormat.JPEG, 100, it)
+                uri?.let {
+                    contentResolver.openOutputStream(it)?.use { out ->
+                        maskBitmap?.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
                 }
             }
-            Toast.makeText(this@MainActivity, "保存成功", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, "保存成功 (mask)", Toast.LENGTH_SHORT).show()
         }
     }
+
+
 
     fun onClick(v: View) {
         when (v.id) {
@@ -146,7 +184,7 @@ class MainActivity : AppCompatActivity() {
             R.id.ivClear -> binding.drawBoardView.clear()
             R.id.ivUndo -> binding.drawBoardView.undo()
             R.id.ivRedo -> binding.drawBoardView.redo()
-            R.id.ivSave -> saveBitmap()
+            R.id.ivSave -> saveMask()
             R.id.ivPath -> changeDrawMode(
                 DrawBoardView.DrawMode.DRAW_PATH,
                 R.drawable.btn_menu_path

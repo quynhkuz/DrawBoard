@@ -46,6 +46,7 @@ import com.king.drawboard.draw.DrawText;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -590,6 +591,170 @@ public class DrawBoardView extends View {
     public void setImageResource(@DrawableRes int drawableId) {
         setImageBitmap(BitmapFactory.decodeResource(getResources(), drawableId));
     }
+
+
+
+//    public Bitmap getMaskBitmap() {
+//        updateImageBitmap();
+//
+//        if (drawingBitmap == null) return null;
+//
+//        int w = drawingBitmap.getWidth();
+//        int h = drawingBitmap.getHeight();
+//
+//        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+//        Canvas c = new Canvas(out);
+//
+//        // nền đen
+//        c.drawColor(Color.BLACK);
+//
+//        // lấy alpha của nét vẽ (chỗ đã vẽ sẽ có alpha > 0)
+//        Bitmap alpha = drawingBitmap.extractAlpha();
+//
+//        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+//        p.setColor(Color.WHITE); // alpha bitmap sẽ được tô bằng màu này
+//
+//        c.drawBitmap(alpha, 0f, 0f, p);
+//        alpha.recycle();
+//
+//        return out;
+//    }
+
+
+
+    //hở trắng
+//    public Bitmap getMaskBitmap() {
+//        updateImageBitmap();
+//        if (drawingBitmap == null) return null;
+//
+//        int w = drawingBitmap.getWidth();
+//        int h = drawingBitmap.getHeight();
+//
+//        // 1) Lấy alpha từ layer vẽ
+//        Bitmap alpha = drawingBitmap.extractAlpha(); // ALPHA_8
+//
+//        // 2) Threshold: alpha > ngưỡng => 255 (trắng), ngược lại 0 (đen)
+//        // Ngưỡng 10~30 thường ổn (nếu nét mảnh/nhạt thì giảm)
+//        int threshold = 20;
+//
+//        int size = w * h;
+//        int[] tmp = new int[size];
+//        alpha.getPixels(tmp, 0, w, 0, 0, w, h);
+//
+//        // alpha bitmap khi getPixels sẽ nằm ở kênh alpha của int (0xAARRGGBB)
+//        for (int i = 0; i < size; i++) {
+//            int a = (tmp[i] >>> 24) & 0xFF;
+//            tmp[i] = (a > threshold) ? 0xFFFFFFFF : 0xFF000000; // trắng / đen
+//        }
+//
+//        // 3) Tạo output mask ARGB (đen nền, trắng nét)
+//        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+//        out.setPixels(tmp, 0, w, 0, 0, w, h);
+//
+//        alpha.recycle();
+//        return out;
+//    }
+
+
+    public Bitmap getMaskBitmap() {
+        updateImageBitmap();
+        if (drawingBitmap == null) return null;
+
+        final int w = drawingBitmap.getWidth();
+        final int h = drawingBitmap.getHeight();
+
+        // 1) Lấy alpha từ layer vẽ
+        Bitmap alpha = drawingBitmap.extractAlpha(); // ALPHA_8
+
+        // 2) Threshold -> mask đen/trắng tuyệt đối
+        // Nếu nét mảnh dễ bị mất đoạn: giảm threshold (5-10). Nếu viền còn xám: tăng (20-60).
+        final int threshold = 20;
+
+        int[] px = new int[w * h];
+        alpha.getPixels(px, 0, w, 0, 0, w, h);
+
+        for (int i = 0; i < px.length; i++) {
+            int a = (px[i] >>> 24) & 0xFF;         // alpha 0..255
+            px[i] = (a > threshold) ? 0xFFFFFFFF   // trắng
+                : 0xFF000000;  // đen
+        }
+        alpha.recycle();
+
+        Bitmap mask = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        mask.setPixels(px, 0, w, 0, 0, w, h);
+
+        // 3) Fill vùng kín (nếu viền khép kín thì bên trong sẽ được tô trắng)
+        return fillClosedAreas(mask);
+    }
+
+    //full trắng
+    public static Bitmap fillClosedAreas(Bitmap mask) {
+        int w = mask.getWidth();
+        int h = mask.getHeight();
+
+        int[] px = new int[w * h];
+        mask.getPixels(px, 0, w, 0, 0, w, h);
+
+        // visited: đánh dấu vùng đen "nền ngoài" (đi được từ viền)
+        boolean[] vis = new boolean[w * h];
+        ArrayDeque<Integer> q = new ArrayDeque<>();
+
+        // helper: pixel đen?
+        // (mask của bạn là 0xFF000000 hoặc 0xFFFFFFFF)
+        java.util.function.IntPredicate isBlack = (color) -> (color & 0x00FFFFFF) == 0x000000;
+
+        // push các pixel ĐEN ở 4 cạnh vào queue
+        for (int x = 0; x < w; x++) {
+            int top = x;
+            int bottom = (h - 1) * w + x;
+            if (isBlack.test(px[top])) { vis[top] = true; q.add(top); }
+            if (isBlack.test(px[bottom])) { vis[bottom] = true; q.add(bottom); }
+        }
+        for (int y = 0; y < h; y++) {
+            int left = y * w;
+            int right = y * w + (w - 1);
+            if (isBlack.test(px[left])) { vis[left] = true; q.add(left); }
+            if (isBlack.test(px[right])) { vis[right] = true; q.add(right); }
+        }
+
+        // BFS flood-fill nền ngoài trên pixel đen
+        int[] dx = {1, -1, 0, 0};
+        int[] dy = {0, 0, 1, -1};
+
+        while (!q.isEmpty()) {
+            int idx = q.removeFirst();
+            int x = idx % w;
+            int y = idx / w;
+
+            for (int k = 0; k < 4; k++) {
+                int nx = x + dx[k];
+                int ny = y + dy[k];
+                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+
+                int nidx = ny * w + nx;
+                if (vis[nidx]) continue;
+                if (!isBlack.test(px[nidx])) continue; // chỉ lan trên nền đen
+
+                vis[nidx] = true;
+                q.add(nidx);
+            }
+        }
+
+        // Đen nào KHÔNG được thăm => bị bao kín => đổi thành trắng
+        for (int i = 0; i < px.length; i++) {
+            if (isBlack.test(px[i]) && !vis[i]) {
+                px[i] = 0xFFFFFFFF; // fill trắng
+            }
+        }
+
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        out.setPixels(px, 0, w, 0, 0, w, h);
+        return out;
+    }
+
+
+
+
 
     /**
      * 设置图片（画板背景图层）
